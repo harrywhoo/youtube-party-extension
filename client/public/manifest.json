@@ -1,0 +1,19 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Party Extension",
+    "version": "1.0.0",
+    "description": "Watch YouTube videos synchronously with friends",
+    "permissions": [
+        "activeTab",
+        "storage",
+        "tabs"
+    ],
+    "host_permissions": [
+        "https://www.youtube.com/*"
+    ],
+    "action": {
+        "default_popup": "index.html",
+        "default_title": "YouTube Party"
+    }
+    
+}

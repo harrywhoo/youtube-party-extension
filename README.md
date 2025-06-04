@@ -1,0 +1,1 @@
+A Google Chrome Extension that let's you watch Youtube videos synchronously with your friends.
