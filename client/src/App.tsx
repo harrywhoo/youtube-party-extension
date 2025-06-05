@@ -7,6 +7,11 @@ type Member = {
   username: string;
 };
 
+// Helper to check if we're in a Chrome extension environment
+const isExtensionEnvironment = () => {
+  return typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage;
+};
+
 function App() {
   const [roomCode, setRoomCode] = useState('')
   const [username, setUsername] = useState('')
@@ -18,69 +23,86 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // Connect to server on component mount
+  // Connect to service worker and listen for events
   useEffect(() => {
-    const socket = socketService.connect();
-    
-    socket.on('connect', () => {
-      setConnectionStatus('connected');
-    });
+    if (!isExtensionEnvironment()) {
+      setConnectionStatus('disconnected');
+      setErrorMessage('Please load this as a Chrome extension');
+      return;
+    }
 
-    socket.on('disconnect', () => {
+    // Get initial connection status from background
+    socketService.getConnectionStatus().then((status) => {
+      setConnectionStatus(status.connected ? 'connected' : 'disconnected');
+      if (status.currentRoom) {
+        setCurrentRoom(status.currentRoom);
+        setUsername(status.username || '');
+        setRoomMembers(status.roomMembers || []);
+      }
+    }).catch((error) => {
+      console.error('Failed to get connection status:', error);
       setConnectionStatus('disconnected');
     });
 
-    socket.on('connect_error', () => {
-      setConnectionStatus('disconnected');
-    });
+    // Listen for messages from background service worker
+    const messageListener = (message: any) => {
+      console.log('Popup received message:', message);
+      
+      switch (message.type) {
+        case 'connection-status':
+          setConnectionStatus(message.status === 'connected' ? 'connected' : 'disconnected');
+          break;
+          
+        case 'room-created':
+          setCurrentRoom(message.data.roomId);
+          setRoomMembers(message.data.members);
+          setRoomCode(message.data.roomId);
+          setErrorMessage(null);
+          setShowUsernameInput(false);
+          console.log('Successfully created room:', message.data.roomId);
+          break;
+          
+        case 'room-joined':
+          setCurrentRoom(message.data.roomId);
+          setRoomMembers(message.data.members);
+          setErrorMessage(null);
+          setShowJoinInput(false);
+          setShowUsernameInput(false);
+          console.log('Successfully joined room:', message.data.roomId);
+          break;
+          
+        case 'room-left':
+          setCurrentRoom(null);
+          setRoomMembers([]);
+          setRoomCode('');
+          setErrorMessage(null);
+          setShowJoinInput(false);
+          setShowUsernameInput(false);
+          console.log('Successfully left room:', message.data);
+          break;
+          
+        case 'user-joined':
+          setRoomMembers(message.data.members);
+          console.log(`${message.data.username} joined the room`);
+          break;
+          
+        case 'user-left':
+          setRoomMembers(message.data.members);
+          console.log('User left the room');
+          break;
+          
+        case 'room-error':
+          setErrorMessage(message.data);
+          console.error('Room error:', message.data);
+          break;
+      }
+    };
 
-    // Listen for room events
-    socketService.onRoomCreated((data) => {
-      setCurrentRoom(data.roomId);
-      setRoomMembers(data.members);
-      setRoomCode(data.roomId);
-      setErrorMessage(null);
-      setShowUsernameInput(false);
-      console.log('Successfully created room:', data.roomId);
-    });
-
-    socketService.onRoomJoined((data) => {
-      setCurrentRoom(data.roomId);
-      setRoomMembers(data.members);
-      setErrorMessage(null);
-      setShowJoinInput(false);
-      setShowUsernameInput(false);
-      console.log('Successfully joined room:', data.roomId);
-    });
-
-    socketService.onRoomLeft((roomId) => {
-      setCurrentRoom(null);
-      setRoomMembers([]);
-      setRoomCode('');
-      setErrorMessage(null);
-      setShowJoinInput(false);
-      setShowUsernameInput(false);
-      console.log('Successfully left room:', roomId);
-    });
-
-    socketService.onUserJoined((data) => {
-      setRoomMembers(data.members);
-      console.log(`${data.username} joined the room`);
-    });
-
-    socketService.onUserLeft((data) => {
-      setRoomMembers(data.members);
-      console.log('User left the room');
-    });
-
-    socketService.onRoomError((error) => {
-      setErrorMessage(error);
-      console.error('Room error:', error);
-    });
+    chrome.runtime.onMessage.addListener(messageListener);
 
     // Cleanup on unmount
     return () => {
-      socketService.disconnect();
+      chrome.runtime.onMessage.removeListener(messageListener);
     };
   }, []);
 
@@ -104,25 +126,35 @@ function App() {
     }
   };
 
-  const handleUsernameSubmit = () => {
+  const handleUsernameSubmit = async () => {
     if (!username.trim()) {
       setErrorMessage('Please enter a username');
       return;
     }
 
-    if (actionType === 'create') {
-      console.log('Creating new party...');
-      socketService.createRoom(username.trim());
-    } else if (actionType === 'join') {
-      console.log('Joining party with code:', roomCode);
-      socketService.joinRoom(roomCode.trim(), username.trim());
+    try {
+      if (actionType === 'create') {
+        console.log('Creating new party...');
+        await socketService.createRoom(username.trim());
+      } else if (actionType === 'join') {
+        console.log('Joining party with code:', roomCode);
+        await socketService.joinRoom(roomCode.trim(), username.trim());
+      }
+    } catch (error) {
+      setErrorMessage(error as string);
+      console.error('Error with room operation:', error);
     }
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
     console.log('Leaving current room...');
     setErrorMessage(null);
-    socketService.leaveRoom();
+    try {
+      await socketService.leaveRoom();
+    } catch (error) {
+      setErrorMessage(error as string);
+      console.error('Error leaving room:', error);
+    }
   };
 
   const handleBack = () => {

@@ -1,103 +1,110 @@
-import { io, Socket } from 'socket.io-client';
+// Socket service types and constants
+// Actual socket connection is now handled in background.ts service worker
 
-const SERVER_URL = 'http://localhost:8080';
+export const SERVER_URL = 'http://localhost:8080';
 
-class SocketService {
-  private socket: Socket | null = null;
+// Types for room data
+export interface Member {
+  socketId: string;
+  username: string;
+}
 
-  connect(): Socket {
-    if (!this.socket) {
-      this.socket = io(SERVER_URL);
+export interface RoomData {
+  roomId: string;
+  members: Member[];
+}
+
+export interface VideoSyncData {
+  roomId: string;
+  action: 'play' | 'pause' | 'seek';
+  time: number;
+  username: string;
+}
+
+// Helper to check if we're in a Chrome extension environment
+const isExtensionEnvironment = () => {
+  return typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage;
+};
+
+// Helper class to communicate with background service worker
+class BackgroundSocketService {
+  
+  // Room methods - these now send messages to background
+  createRoom(username: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!isExtensionEnvironment()) {
+        reject('Not running in Chrome extension environment');
+        return;
+      }
       
-      this.socket.on('connect', () => {
-        console.log('Connected to server:', this.socket?.id);
+      chrome.runtime.sendMessage({ 
+        type: 'create-room', 
+        username 
+      }, (response) => {
+        if (response?.success) {
+          resolve(response);
+        } else {
+          reject(response?.error || 'Failed to create room');
+        }
       });
+    });
+  }
 
-      this.socket.on('disconnect', () => {
-        console.log('Disconnected from server');
+  joinRoom(roomId: string, username: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!isExtensionEnvironment()) {
+        reject('Not running in Chrome extension environment');
+        return;
+      }
+      
+      chrome.runtime.sendMessage({ 
+        type: 'join-room', 
+        roomId, 
+        username 
+      }, (response) => {
+        if (response?.success) {
+          resolve(response);
+        } else {
+          reject(response?.error || 'Failed to join room');
+        }
       });
+    });
+  }
 
-      this.socket.on('connect_error', (error) => {
-        console.error('Connection error:', error);
+  leaveRoom(): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!isExtensionEnvironment()) {
+        reject('Not running in Chrome extension environment');
+        return;
+      }
+      
+      chrome.runtime.sendMessage({ 
+        type: 'leave-room' 
+      }, (response) => {
+        if (response?.success) {
+          resolve(response);
+        } else {
+          reject(response?.error || 'Failed to leave room');
+        }
       });
-    }
-    
-    return this.socket;
+    });
   }
 
-  disconnect(): void {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
-    }
-  }
-
-  getSocket(): Socket | null {
-    return this.socket;
-  }
-
-  // Room methods - now using Socket.IO events
-  createRoom(username: string): void {
-    if (this.socket) {
-      this.socket.emit('create-room', { username });
-    }
-  }
-
-  joinRoom(roomId: string, username: string): void {
-    if (this.socket) {
-      this.socket.emit('join-room', { roomId, username });
-    }
-  }
-
-  leaveRoom(): void {
-    if (this.socket) {
-      this.socket.emit('leave-room');
-    }
-  }
-
-  // Event listeners
-  onRoomCreated(callback: (data: { roomId: string, members: any[] }) => void): void {
-    if (this.socket) {
-      this.socket.on('room-created', callback);
-    }
-  }
-
-  onRoomJoined(callback: (data: { roomId: string, members: any[] }) => void): void {
-    if (this.socket) {
-      this.socket.on('room-joined', callback);
-    }
-  }
-
-  onRoomLeft(callback: (roomId: string) => void): void {
-    if (this.socket) {
-      this.socket.on('room-left', callback);
-    }
-  }
-
-  onUserJoined(callback: (data: { userId: string, username: string, members: any[] }) => void): void {
-    if (this.socket) {
-      this.socket.on('user-joined', callback);
-    }
-  }
-
-  onUserLeft(callback: (data: { userId: string, members: any[] }) => void): void {
-    if (this.socket) {
-      this.socket.on('user-left', callback);
-    }
-  }
-
-  onRoomError(callback: (error: string) => void): void {
-    if (this.socket) {
-      this.socket.on('room-error', callback);
-    }
-  }
-
-  // Clean up event listeners
-  off(event: string, callback?: (...args: any[]) => void): void {
-    if (this.socket) {
-      this.socket.off(event, callback);
-    }
+  // Get current connection status from background
+  getConnectionStatus(): Promise<any> {
+    return new Promise((resolve) => {
+      if (!isExtensionEnvironment()) {
+        resolve({ connected: false, error: 'Not in extension environment' });
+        return;
+      }
+      
+      chrome.runtime.sendMessage({ 
+        type: 'get-connection-status' 
+      }, (response) => {
+        resolve(response || { connected: false });
+      });
+    });
   }
 }
 
-export const socketService = new SocketService(); 
+export const socketService = new BackgroundSocketService(); 
