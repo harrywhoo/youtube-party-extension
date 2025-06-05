@@ -1,35 +1,76 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import { socketService } from './services/socket'
 
 function App() {
   const [roomCode, setRoomCode] = useState('')
   const [showJoinInput, setShowJoinInput] = useState(false)
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const username = 'Guest User' // Simplified since we're not changing it
 
-  // Test server connection on load
+  // Connect to server on component mount
   useEffect(() => {
-    const testConnection = async () => {
-      try {
-        const response = await fetch("http://localhost:8080/api");
-        const data = await response.json();
-        console.log('Server connected:', data);
-      } catch (err) {
-        console.log('Server not connected:', err);
-      }
+    const socket = socketService.connect();
+    
+    socket.on('connect', () => {
+      setConnectionStatus('connected');
+    });
+
+    socket.on('disconnect', () => {
+      setConnectionStatus('disconnected');
+    });
+
+    socket.on('connect_error', () => {
+      setConnectionStatus('disconnected');
+    });
+
+    // Listen for room events
+    socketService.onRoomCreated((roomId: string) => {
+      setCurrentRoom(roomId);
+      setRoomCode(roomId);
+      setErrorMessage(null);
+      console.log('Successfully created room:', roomId);
+    });
+
+    socketService.onRoomJoined((roomId: string) => {
+      setCurrentRoom(roomId);
+      setErrorMessage(null);
+      setShowJoinInput(false); // Close join input on success
+      console.log('Successfully joined room:', roomId);
+    });
+
+    socketService.onUserJoined((userId: string) => {
+      console.log('User joined room:', userId);
+    });
+
+    socketService.onUserLeft((userId: string) => {
+      console.log('User left room:', userId);
+    });
+
+    socketService.onRoomError((error: string) => {
+      setErrorMessage(error);
+      console.error('Room error:', error);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      socketService.disconnect();
     };
-    testConnection();
   }, []);
 
   const handleStartParty = () => {
-    const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    console.log('Starting party with code:', newRoomCode);
-    // TODO: Connect to server and create room
+    console.log('Creating new party...');
+    setErrorMessage(null);
+    socketService.createRoom();
   };
 
   const handleJoinParty = () => {
     if (roomCode.trim()) {
       console.log('Joining party with code:', roomCode);
-      // TODO: Connect to server and join room
+      setErrorMessage(null);
+      socketService.joinRoom(roomCode.trim());
     }
   };
 
@@ -44,9 +85,27 @@ function App() {
         </div>
         <div className="profile-info">
           <h3 className="username">{username}</h3>
-          <p className="status">Ready to watch</p>
+          <p className="status">
+            {connectionStatus === 'connected' ? '🟢 Connected' : 
+             connectionStatus === 'connecting' ? '🟡 Connecting...' : 
+             '🔴 Disconnected'}
+          </p>
         </div>
       </div>
+
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="error-message">
+          <p>❌ {errorMessage}</p>
+        </div>
+      )}
+
+      {/* Current Room Display */}
+      {currentRoom && (
+        <div className="current-room">
+          <p>📺 Current Room: <strong>{currentRoom}</strong></p>
+        </div>
+      )}
 
       {/* Main Title */}
       <div className="title-section">
@@ -85,9 +144,8 @@ function App() {
                 type="text"
                 placeholder="Enter room code..."
                 value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                onChange={(e) => setRoomCode(e.target.value)}
                 className="room-input"
-                maxLength={6}
               />
               <button 
                 className="join-submit-btn"
@@ -121,3 +179,5 @@ function App() {
 }
 
 export default App
+
+
