@@ -37,38 +37,50 @@ class SocketService {
   }
 
   // Room methods - now using Socket.IO events
-  createRoom(): void {
+  createRoom(username: string): void {
     if (this.socket) {
-      this.socket.emit('create-room');
+      this.socket.emit('create-room', { username });
     }
   }
 
-  joinRoom(roomId: string): void {
+  joinRoom(roomId: string, username: string): void {
     if (this.socket) {
-      this.socket.emit('join-room', roomId);
+      this.socket.emit('join-room', { roomId, username });
+    }
+  }
+
+  leaveRoom(): void {
+    if (this.socket) {
+      this.socket.emit('leave-room');
     }
   }
 
   // Event listeners
-  onRoomCreated(callback: (roomId: string) => void): void {
+  onRoomCreated(callback: (data: { roomId: string, members: any[] }) => void): void {
     if (this.socket) {
       this.socket.on('room-created', callback);
     }
   }
 
-  onRoomJoined(callback: (roomId: string) => void): void {
+  onRoomJoined(callback: (data: { roomId: string, members: any[] }) => void): void {
     if (this.socket) {
       this.socket.on('room-joined', callback);
     }
   }
 
-  onUserJoined(callback: (userId: string) => void): void {
+  onRoomLeft(callback: (roomId: string) => void): void {
+    if (this.socket) {
+      this.socket.on('room-left', callback);
+    }
+  }
+
+  onUserJoined(callback: (data: { userId: string, username: string, members: any[] }) => void): void {
     if (this.socket) {
       this.socket.on('user-joined', callback);
     }
   }
 
-  onUserLeft(callback: (userId: string) => void): void {
+  onUserLeft(callback: (data: { userId: string, members: any[] }) => void): void {
     if (this.socket) {
       this.socket.on('user-left', callback);
     }

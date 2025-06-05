@@ -2,13 +2,21 @@ import { useState, useEffect } from 'react'
 import './App.css'
 import { socketService } from './services/socket'
 
+type Member = {
+  socketId: string;
+  username: string;
+};
+
 function App() {
   const [roomCode, setRoomCode] = useState('')
+  const [username, setUsername] = useState('')
   const [showJoinInput, setShowJoinInput] = useState(false)
+  const [showUsernameInput, setShowUsernameInput] = useState(false)
+  const [actionType, setActionType] = useState<'create' | 'join' | null>(null)
   const [currentRoom, setCurrentRoom] = useState<string | null>(null)
+  const [roomMembers, setRoomMembers] = useState<Member[]>([])
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const username = 'Guest User' // Simplified since we're not changing it
 
   // Connect to server on component mount
   useEffect(() => {
@@ -27,29 +35,45 @@ function App() {
     });
 
     // Listen for room events
-    socketService.onRoomCreated((roomId: string) => {
-      setCurrentRoom(roomId);
-      setRoomCode(roomId);
+    socketService.onRoomCreated((data) => {
+      setCurrentRoom(data.roomId);
+      setRoomMembers(data.members);
+      setRoomCode(data.roomId);
       setErrorMessage(null);
-      console.log('Successfully created room:', roomId);
+      setShowUsernameInput(false);
+      console.log('Successfully created room:', data.roomId);
     });
 
-    socketService.onRoomJoined((roomId: string) => {
-      setCurrentRoom(roomId);
+    socketService.onRoomJoined((data) => {
+      setCurrentRoom(data.roomId);
+      setRoomMembers(data.members);
       setErrorMessage(null);
-      setShowJoinInput(false); // Close join input on success
-      console.log('Successfully joined room:', roomId);
+      setShowJoinInput(false);
+      setShowUsernameInput(false);
+      console.log('Successfully joined room:', data.roomId);
     });
 
-    socketService.onUserJoined((userId: string) => {
-      console.log('User joined room:', userId);
+    socketService.onRoomLeft((roomId) => {
+      setCurrentRoom(null);
+      setRoomMembers([]);
+      setRoomCode('');
+      setErrorMessage(null);
+      setShowJoinInput(false);
+      setShowUsernameInput(false);
+      console.log('Successfully left room:', roomId);
     });
 
-    socketService.onUserLeft((userId: string) => {
-      console.log('User left room:', userId);
+    socketService.onUserJoined((data) => {
+      setRoomMembers(data.members);
+      console.log(`${data.username} joined the room`);
     });
 
-    socketService.onRoomError((error: string) => {
+    socketService.onUserLeft((data) => {
+      setRoomMembers(data.members);
+      console.log('User left the room');
+    });
+
+    socketService.onRoomError((error) => {
       setErrorMessage(error);
       console.error('Room error:', error);
     });
@@ -61,52 +85,58 @@ function App() {
   }, []);
 
   const handleStartParty = () => {
-    console.log('Creating new party...');
+    setActionType('create');
+    setShowUsernameInput(true);
     setErrorMessage(null);
-    socketService.createRoom();
+  };
+
+  const handleJoinPartyClick = () => {
+    setShowJoinInput(true);
+    setErrorMessage(null);
   };
 
   const handleJoinParty = () => {
     if (roomCode.trim()) {
-      console.log('Joining party with code:', roomCode);
+      setActionType('join');
+      setShowUsernameInput(true);
+      setShowJoinInput(false);
       setErrorMessage(null);
-      socketService.joinRoom(roomCode.trim());
     }
   };
 
-  return (
-    <div className="popup-container">
-      {/* Profile Section */}
-      <div className="profile-section">
-        <div className="profile-avatar">
-          <div className="avatar-circle">
-            {username.charAt(0).toUpperCase()}
-          </div>
-        </div>
-        <div className="profile-info">
-          <h3 className="username">{username}</h3>
-          <p className="status">
-            {connectionStatus === 'connected' ? '🟢 Connected' : 
-             connectionStatus === 'connecting' ? '🟡 Connecting...' : 
-             '🔴 Disconnected'}
-          </p>
-        </div>
-      </div>
+  const handleUsernameSubmit = () => {
+    if (!username.trim()) {
+      setErrorMessage('Please enter a username');
+      return;
+    }
 
-      {/* Error Message */}
-      {errorMessage && (
-        <div className="error-message">
-          <p>❌ {errorMessage}</p>
-        </div>
-      )}
+    if (actionType === 'create') {
+      console.log('Creating new party...');
+      socketService.createRoom(username.trim());
+    } else if (actionType === 'join') {
+      console.log('Joining party with code:', roomCode);
+      socketService.joinRoom(roomCode.trim(), username.trim());
+    }
+  };
 
-      {/* Current Room Display */}
-      {currentRoom && (
-        <div className="current-room">
-          <p>📺 Current Room: <strong>{currentRoom}</strong></p>
-        </div>
-      )}
+  const handleLeaveRoom = () => {
+    console.log('Leaving current room...');
+    setErrorMessage(null);
+    socketService.leaveRoom();
+  };
 
+  const handleBack = () => {
+    setShowJoinInput(false);
+    setShowUsernameInput(false);
+    setActionType(null);
+    setRoomCode('');
+    setUsername('');
+    setErrorMessage(null);
+  };
+
+  // Main lobby view (not in a room)
+  const renderLobby = () => (
+    <>
       {/* Main Title */}
       <div className="title-section">
         <h1 className="app-title">🎬 YouTube Party</h1>
@@ -129,7 +159,7 @@ function App() {
         {!showJoinInput ? (
           <button 
             className="action-btn join-btn"
-            onClick={() => setShowJoinInput(true)}
+            onClick={handleJoinPartyClick}
           >
             <span className="btn-icon">🚪</span>
             <div className="btn-content">
@@ -152,21 +182,126 @@ function App() {
                 onClick={handleJoinParty}
                 disabled={!roomCode.trim()}
               >
-                Join
+                Next
               </button>
             </div>
             <button 
               className="back-btn"
-              onClick={() => {
-                setShowJoinInput(false);
-                setRoomCode('');
-              }}
+              onClick={handleBack}
             >
               ← Back
             </button>
           </div>
         )}
       </div>
+    </>
+  );
+
+  // Username input view
+  const renderUsernameInput = () => (
+    <>
+      <div className="title-section">
+        <h1 className="app-title">👤 Enter Your Name</h1>
+        <p className="app-subtitle">
+          {actionType === 'create' ? 'Creating a new room' : `Joining room: ${roomCode}`}
+        </p>
+      </div>
+
+      <div className="actions-section">
+        <div className="username-section">
+          <input
+            type="text"
+            placeholder="Enter your name..."
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="username-input"
+            maxLength={20}
+          />
+          <button 
+            className="username-submit-btn"
+            onClick={handleUsernameSubmit}
+            disabled={!username.trim()}
+          >
+            {actionType === 'create' ? '🎪 Create Room' : '🚪 Join Room'}
+          </button>
+        </div>
+        
+        <button 
+          className="back-btn"
+          onClick={handleBack}
+        >
+          ← Back
+        </button>
+      </div>
+    </>
+  );
+
+  // Room view (when in a room)
+  const renderRoom = () => (
+    <>
+      <div className="title-section">
+        <h1 className="app-title">🎬 Room: {currentRoom}</h1>
+        <p className="app-subtitle">{roomMembers.length} member{roomMembers.length !== 1 ? 's' : ''} watching together</p>
+      </div>
+
+      {/* Member List */}
+      <div className="members-section">
+        <h3 className="members-title">👥 Members</h3>
+        <div className="members-list">
+          {roomMembers.map((member, index) => (
+            <div key={member.socketId} className="member-item">
+              <div className="member-avatar">
+                {member.username.charAt(0).toUpperCase()}
+              </div>
+              <span className="member-name">{member.username}</span>
+              {index === 0 && <span className="host-badge">HOST</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Room Actions */}
+      <div className="room-actions">
+        <button 
+          className="leave-room-btn"
+          onClick={handleLeaveRoom}
+        >
+          🚪 Leave Room
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="popup-container">
+      {/* Profile Section */}
+      <div className="profile-section">
+        <div className="profile-avatar">
+          <div className="avatar-circle">
+            {currentRoom ? username.charAt(0).toUpperCase() : 'G'}
+          </div>
+        </div>
+        <div className="profile-info">
+          <h3 className="username">{currentRoom ? username : 'Guest User'}</h3>
+          <p className="status">
+            {connectionStatus === 'connected' ? '🟢 Connected' : 
+             connectionStatus === 'connecting' ? '🟡 Connecting...' : 
+             '🔴 Disconnected'}
+          </p>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="error-message">
+          <p>❌ {errorMessage}</p>
+        </div>
+      )}
+
+      {/* Dynamic Content Based on State */}
+      {currentRoom ? renderRoom() : 
+       showUsernameInput ? renderUsernameInput() : 
+       renderLobby()}
 
       {/* Footer */}
       <div className="footer-section">
