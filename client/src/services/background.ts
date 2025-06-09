@@ -205,10 +205,7 @@ function handleLeaveRoom(sendResponse: (response: any) => void) {
     }
     
     socket.emit('leave-room');
-    // Clear local state immediately
-    currentRoom = null;
-    username = null;
-    roomMembers = [];
+    // Don't clear local state immediately - wait for server confirmation via 'room-left' event
     sendResponse({ success: true });
 }
 
