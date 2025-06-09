@@ -118,7 +118,7 @@ function App() {
   };
 
   const handleJoinParty = () => {
-    if (roomCode.trim()) {
+    if (roomCode && roomCode.trim()) {
       setActionType('join');
       setShowUsernameInput(true);
       setShowJoinInput(false);
@@ -127,7 +127,7 @@ function App() {
   };
 
   const handleUsernameSubmit = async () => {
-    if (!username.trim()) {
+    if (!username || !username.trim()) {
       setErrorMessage('Please enter a username');
       return;
     }
@@ -138,7 +138,7 @@ function App() {
         await socketService.createRoom(username.trim());
       } else if (actionType === 'join') {
         console.log('Joining party with code:', roomCode);
-        await socketService.joinRoom(roomCode.trim(), username.trim());
+        await socketService.joinRoom(roomCode ? roomCode.trim() : '', username.trim());
       }
     } catch (error) {
       setErrorMessage(error as string);
@@ -212,7 +212,7 @@ function App() {
               <button 
                 className="join-submit-btn"
                 onClick={handleJoinParty}
-                disabled={!roomCode.trim()}
+                disabled={!roomCode || !roomCode.trim()}
               >
                 Next
               </button>
@@ -252,7 +252,7 @@ function App() {
           <button 
             className="username-submit-btn"
             onClick={handleUsernameSubmit}
-            disabled={!username.trim()}
+            disabled={!username || !username.trim()}
           >
             {actionType === 'create' ? '🎪 Create Room' : '🚪 Join Room'}
           </button>
