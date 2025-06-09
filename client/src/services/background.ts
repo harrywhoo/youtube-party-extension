@@ -99,10 +99,34 @@ function initializeSocket() {
 
     // Video sync handler
     socket.on('video-sync-received', (data) => {
-        console.log('Received video sync:', data);
+        console.log('📥 Received video sync:', data);
+        console.log('🔍 Checking filters - Current room:', currentRoom, 'My username:', username);
+        console.log('🔍 Data room:', data.roomId, 'Data username:', data.username);
+        
         // Only apply if it's for our current room and not from ourselves
         if (data.roomId === currentRoom && data.username !== username) {
+            console.log('✅ Filters passed, broadcasting to content scripts');
             broadcastToContentScripts(data);
+        } else {
+            console.log('❌ Filters failed - ignoring sync message');
+            if (data.roomId !== currentRoom) console.log('   - Wrong room');
+            if (data.username === username) console.log('   - From myself');
+        }
+    });
+
+    // URL sync handler
+    socket.on('url-sync-received', (data) => {
+        console.log('📺 Received URL sync:', data);
+        console.log('🔍 Checking filters - Current room:', currentRoom, 'My username:', username);
+        
+        // Only apply if it's for our current room and not from ourselves
+        if (data.roomId === currentRoom && data.username !== username) {
+            console.log('✅ URL sync filters passed, broadcasting to content scripts');
+            broadcastUrlToContentScripts(data);
+        } else {
+            console.log('❌ URL sync filters failed - ignoring message');
+            if (data.roomId !== currentRoom) console.log('   - Wrong room');
+            if (data.username === username) console.log('   - From myself');
         }
     });
 }
@@ -131,6 +155,30 @@ function broadcastToContentScripts(syncData: any) {
     });
 }
 
+
+// Broadcast URL sync to all YouTube content scripts
+function broadcastUrlToContentScripts(urlData: any) {
+    console.log('🔄 Broadcasting URL sync to content scripts:', urlData);
+    console.log('test');
+    chrome.tabs.query({ url: "*://www.youtube.com/*" }, (tabs) => {
+        console.log('📋 Found', tabs.length, 'YouTube tabs:', tabs.map(tab => ({ id: tab.id, url: tab.url })));
+        tabs.forEach(tab => {
+            if (tab.id) {
+                console.log('📤 Sending URL sync to tab', tab.id, ':', tab.url);
+                chrome.tabs.sendMessage(tab.id, {
+                    type: 'incoming-url-sync',
+                    videoId: urlData.videoId,
+                    url: urlData.url
+                }).then(() => {
+                    console.log('✅ URL sync message sent successfully to tab', tab.id);
+                }).catch((error) => {
+                    console.warn('❌ Failed to send URL sync to tab', tab.id, ':', error);
+                });
+            }
+        });
+    });
+}
+
 // Extension installation/startup
 chrome.runtime.onInstalled.addListener((details) => {
     console.log('YouTube Party Extension installed/updated:', details.reason);
@@ -139,6 +187,37 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 // Initialize socket when service worker starts
 initializeSocket();
+
+// Listen for tab updates (URL changes) - proper way for SPA navigation
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
+    console.log('🔄 Tab updated:', changeInfo);
+    
+    // Only handle URL changes on YouTube watch pages
+    if (changeInfo.url && changeInfo.url.includes('youtube.com/watch')) {
+        console.log('📺 YouTube watch page URL changed:', changeInfo.url);
+        
+        // Extract video ID
+        const videoMatch = changeInfo.url.match(/[?&]v=([^&]+)/);
+        if (videoMatch && currentRoom && username) {
+            const videoId = videoMatch[1];
+            console.log('📤 Sending URL sync for video:', videoId);
+            
+            // Send URL sync to server
+            handleUrlSync({
+                videoId: videoId,
+                url: changeInfo.url
+            });
+        }
+        
+        // Notify content script about URL change
+        chrome.tabs.sendMessage(tabId, {
+            type: 'url-changed',
+            url: changeInfo.url
+        }).catch(() => {
+            // Content script might not be loaded, ignore
+        });
+    }
+});
 
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -159,6 +238,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             
         case 'outgoing-sync':
             handleVideoSync(message);
+            break;
+            
+        case 'outgoing-url-sync':
+            handleUrlSync(message);
             break;
             
         case 'get-connection-status':
@@ -221,6 +304,22 @@ function handleVideoSync(message: any) {
         roomId: currentRoom,
         action: message.action,
         time: message.time,
+        username: username
+    });
+}
+
+// URL sync function
+function handleUrlSync(message: any) {
+    if (!socket || !currentRoom || !username) {
+        console.log('Cannot sync URL: not connected or not in room');
+        return;
+    }
+    
+    console.log('📺 Sending URL sync to server:', message);
+    socket.emit('url-sync', {
+        roomId: currentRoom,
+        videoId: message.videoId,
+        url: message.url,
         username: username
     });
 }
