@@ -150,31 +150,31 @@ export function RoomView({ username, status, roomCode, members, onLeave }: RoomV
             )}
           </div>
           
-          <div className="space-y-2 max-h-40 overflow-y-auto">
+          <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
             {members.map((member, index) => (
               <div 
                 key={member.socketId} 
-                className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg"
+                className="flex items-center gap-2 p-2 bg-muted/40 rounded-lg"
               >
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
                     {member.username.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{member.username}</p>
+                  <p className="text-xs font-medium text-foreground truncate">{member.username}</p>
                   <p className="text-xs text-muted-foreground">
                     {member.username === username ? 'You' : index === 0 ? 'Host' : 'Member'}
                   </p>
                 </div>
                 {index === 0 && (
-                  <Badge className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                    <Crown className="w-3 h-3 mr-1" />
+                  <Badge className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs px-1.5 py-0.5">
+                    <Crown className="w-2.5 h-2.5 mr-1" />
                     Host
                   </Badge>
                 )}
                 {member.username === username && index !== 0 && (
-                  <Badge variant="secondary">You</Badge>
+                  <Badge variant="secondary" className="text-xs px-1.5 py-0.5">You</Badge>
                 )}
               </div>
             ))}

@@ -64,9 +64,9 @@ export function NameInput({
         </div>
 
         {/* Form Content */}
-        <div className="flex-1 px-6 space-y-4">
+        <div className="flex-1 px-6 space-y-6">
           {/* Username Section */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             <label className="text-sm font-medium text-foreground">Your Username</label>
             <Input
               placeholder="Enter your username"
@@ -96,7 +96,6 @@ export function NameInput({
                     Host
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">You'll be the party host</p>
               </div>
             </div>
           )}

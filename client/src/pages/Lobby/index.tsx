@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Progress } from '@/components/ui/progress'
 import { Play, Plus, Users2, Wifi, WifiOff, Loader2, LogOut, Clock, Shield } from 'lucide-react'
 
 interface LobbyProps {
@@ -75,16 +74,7 @@ export function Lobby({ username, status, onStart, onJoin, onLogout }: LobbyProp
   }
 
   return (
-    <div className="h-full bg-background flex flex-col relative">
-      {/* Logout Button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onLogout}
-        className="absolute top-2 right-2 z-10"
-      >
-        <LogOut className="w-4 h-4" />
-      </Button>
+    <div className="h-full bg-background flex flex-col">{/* Removed relative positioning and logout button */}
 
       {/* User Header */}
       <div className="p-4 border-b">
@@ -130,14 +120,7 @@ export function Lobby({ username, status, onStart, onJoin, onLogout }: LobbyProp
             </div>
 
 
-            {/* Connection Quality */}
-            <div className="p-3 bg-muted/20 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-foreground">Connection Quality</span>
-                <span className="text-xs text-green-600 font-medium">Excellent</span>
-              </div>
-              <Progress value={92} className="h-2" />
-            </div>
+{/* Connection quality section removed */}
           </div>
 
           {/* Actions */}
@@ -161,6 +144,15 @@ export function Lobby({ username, status, onStart, onJoin, onLogout }: LobbyProp
             >
               <Users2 className="w-5 h-5 mr-2" />
               Join Existing Party
+            </Button>
+
+            <Button 
+              variant="ghost" 
+              onClick={onLogout}
+              className="w-full"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Log Out
             </Button>
           </div>
         </>
