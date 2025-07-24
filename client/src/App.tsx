@@ -56,8 +56,7 @@ export default function App() {
     setPhase('name');
   };
 
-  const handleJoin = (code: string) => {
-    setRoomCode(code);
+  const handleJoin = () => {
     setActionType('join');
     setPhase('name');
   };
@@ -109,11 +108,9 @@ export default function App() {
       return (
         <NameInput
           username={username}
-          onChange={setUsername}
           onSubmit={handleNameSubmit}
           onBack={handleBack}
           actionType={actionType}
-          roomCode={roomCode}
         />
       );
     }
@@ -141,7 +138,7 @@ export default function App() {
         username={username}
         status={status}
         onStart={handleStart}
-        onJoin={handleJoin}
+        onJoinClick={handleJoin}
         onLogout={handleLogout}
       />
     );
