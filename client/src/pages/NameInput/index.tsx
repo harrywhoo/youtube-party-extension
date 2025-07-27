@@ -7,7 +7,7 @@ import { Plus, Users2, Settings, Globe, Lock, Gamepad2 } from 'lucide-react'
 
 interface NameInputProps {
   username: string
-  onSubmit: () => void
+  onSubmit: (roomCode?: string) => void
   onBack: () => void
   actionType: 'create' | 'join'
 }
@@ -24,7 +24,15 @@ export function NameInput({
   const [joinRoomCode, setJoinRoomCode] = useState('')
 
   const handleSubmit = () => {
-    onSubmit()
+    if (actionType === 'join') {
+      if (joinRoomCode.trim().length !== 6) {
+        // Could show error message
+        return;
+      }
+      onSubmit(joinRoomCode.trim());
+    } else {
+      onSubmit();
+    }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

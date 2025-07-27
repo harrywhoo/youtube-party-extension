@@ -1,4 +1,4 @@
-const { nanoid } = require("nanoid");
+// Removed nanoid dependency - using custom room code generator
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -21,6 +21,34 @@ const activeRooms = new Set();
 const roomMembers = new Map(); // roomId -> Map of socketId -> username
 const userRooms = new Map(); // socketId -> roomId (since users can only be in one room)
 const usernames = new Map(); // socketId -> username
+
+// Generate 6-character uppercase room code
+function generateRoomCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
+// Generate unique room code (ensure no collisions)
+function generateUniqueRoomCode() {
+    let code;
+    let attempts = 0;
+    const maxAttempts = 100; // Prevent infinite loop
+    
+    do {
+        code = generateRoomCode();
+        attempts++;
+    } while (activeRooms.has(code) && attempts < maxAttempts);
+    
+    if (attempts >= maxAttempts) {
+        throw new Error('Unable to generate unique room code');
+    }
+    
+    return code;
+}
 
 const corsOptions = {
     origin: [
@@ -88,39 +116,63 @@ io.on("connection", (socket) => {
     // Handle room creation
     socket.on('create-room', (data) => {
         const { username } = data;
-        const roomId = nanoid();
-        activeRooms.add(roomId);
-        socket.join(roomId);
-        joinRoom(socket.id, roomId, username);
-        console.log(`${socket.id} (${username}) created and joined room ${roomId}`);
         
-        const members = getRoomMembersArray(roomId);
-        socket.emit('room-created', { roomId, members });
+        if (!username || typeof username !== 'string' || username.trim().length === 0) {
+            socket.emit('room-error', 'Valid username is required');
+            return;
+        }
+        
+        try {
+            const roomId = generateUniqueRoomCode();
+            activeRooms.add(roomId);
+            socket.join(roomId);
+            joinRoom(socket.id, roomId, username.trim());
+            console.log(`${socket.id} (${username}) created and joined room ${roomId}`);
+            
+            const members = getRoomMembersArray(roomId);
+            socket.emit('room-created', { roomId, members });
+        } catch (error) {
+            console.error('Failed to create room:', error);
+            socket.emit('room-error', 'Failed to create room. Please try again.');
+        }
     });
 
     // Handle joining existing room with validation
     socket.on('join-room', (data) => {
         const { roomId, username } = data;
         
+        // Validate username
+        if (!username || typeof username !== 'string' || username.trim().length === 0) {
+            socket.emit('room-error', 'Valid username is required');
+            return;
+        }
+        
+        // Validate room code format (6 uppercase alphanumeric)
         if (!roomId || typeof roomId !== 'string') {
-            socket.emit('room-error', 'Invalid room code');
+            socket.emit('room-error', 'Invalid room code format');
+            return;
+        }
+        
+        const cleanRoomId = roomId.trim().toUpperCase();
+        if (!/^[A-Z0-9]{6}$/.test(cleanRoomId)) {
+            socket.emit('room-error', 'Room code must be 6 characters (letters and numbers only)');
             return;
         }
 
-        if (!activeRooms.has(roomId)) {
+        if (!activeRooms.has(cleanRoomId)) {
             socket.emit('room-error', 'Room does not exist');
             return;
         }
 
-        socket.join(roomId);
-        joinRoom(socket.id, roomId, username);
-        console.log(`${socket.id} (${username}) joined room ${roomId} (${roomMembers.get(roomId).size} users)`);
+        socket.join(cleanRoomId);
+        joinRoom(socket.id, cleanRoomId, username.trim());
+        console.log(`${socket.id} (${username}) joined room ${cleanRoomId} (${roomMembers.get(cleanRoomId).size} users)`);
         
-        const members = getRoomMembersArray(roomId);
-        socket.emit('room-joined', { roomId, members });
+        const members = getRoomMembersArray(cleanRoomId);
+        socket.emit('room-joined', { roomId: cleanRoomId, members });
         
         // Notify others in the room
-        socket.to(roomId).emit('user-joined', { userId: socket.id, username, members });
+        socket.to(cleanRoomId).emit('user-joined', { userId: socket.id, username: username.trim(), members });
     });
 
     // Handle manual room leaving

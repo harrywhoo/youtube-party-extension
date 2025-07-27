@@ -3,6 +3,7 @@ import { Welcome } from './pages/Welcome';
 import { Lobby } from './pages/Lobby';
 import { NameInput } from './pages/NameInput';
 import { RoomView } from './pages/RoomView';
+import { socketService } from './services/socket';
 
 type AppPhase = 'welcome' | 'lobby' | 'name' | 'room';
 
@@ -11,17 +12,11 @@ export default function App() {
   const [username, setUsername] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [actionType, setActionType] = useState<'create' | 'join'>('create');
-  const [status] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
+  const [status, setStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  
-  // Mock members data for testing
-  const [members] = useState([
-    { socketId: '1', username: 'Alice' },
-    { socketId: '2', username: 'Bob' },
-    { socketId: '3', username: 'Charlie' }
-  ]);
+  const [members, setMembers] = useState<Array<{ socketId: string; username: string }>>([]);
 
-  // Check if user is already logged in
+  // Check if user is already logged in and setup socket listeners
   useEffect(() => {
     const savedUsername = localStorage.getItem('youtube-party-username');
     const loginTimestamp = localStorage.getItem('youtube-party-login-time');
@@ -31,6 +26,60 @@ export default function App() {
       setUsername(savedUsername);
       setIsLoggedIn(true);
       setPhase('lobby');
+    }
+
+    // Setup socket connection status monitoring
+    const checkConnectionStatus = async () => {
+      try {
+        const connectionStatus = await socketService.getConnectionStatus();
+        setStatus(connectionStatus.connected ? 'connected' : 'disconnected');
+        if (connectionStatus.currentRoom && connectionStatus.members) {
+          setRoomCode(connectionStatus.currentRoom);
+          setMembers(connectionStatus.members);
+          setPhase('room');
+        }
+      } catch (error) {
+        console.error('Failed to get connection status:', error);
+        setStatus('disconnected');
+      }
+    };
+
+    checkConnectionStatus();
+    
+    // Setup background message listeners for real-time updates
+    const messageListener = (message: any) => {
+      console.log('App received background message:', message);
+      switch (message.type) {
+        case 'connection-status':
+          setStatus(message.status === 'connected' ? 'connected' : 'disconnected');
+          break;
+        case 'room-created':
+        case 'room-joined':
+          setRoomCode(message.data.roomId);
+          setMembers(message.data.members);
+          setPhase('room');
+          break;
+        case 'room-left':
+          setRoomCode('');
+          setMembers([]);
+          setPhase('lobby');
+          break;
+        case 'user-joined':
+        case 'user-left':
+          setMembers(message.data.members);
+          break;
+        case 'room-error':
+          console.error('Room error:', message.data);
+          // Handle error (could show a toast or error message)
+          break;
+      }
+    };
+
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(messageListener);
+      return () => {
+        chrome.runtime.onMessage.removeListener(messageListener);
+      };
     }
   }, []);
 
@@ -61,15 +110,24 @@ export default function App() {
     setPhase('name');
   };
 
-  const handleNameSubmit = () => {
+  const handleNameSubmit = async (roomCodeToJoin?: string) => {
     if (username.trim()) {
       // Save updated username
       localStorage.setItem('youtube-party-username', username);
-      setPhase('room');
+      setStatus('connecting');
       
-      // Generate room code if creating
-      if (actionType === 'create') {
-        setRoomCode(generateRoomCode());
+      try {
+        if (actionType === 'create') {
+          await socketService.createRoom(username.trim());
+          // Room created response will be handled by the message listener
+        } else if (roomCodeToJoin) {
+          await socketService.joinRoom(roomCodeToJoin, username.trim());
+          // Room joined response will be handled by the message listener
+        }
+      } catch (error) {
+        console.error('Failed to create/join room:', error);
+        setStatus('disconnected');
+        // Could show error message to user
       }
     }
   };
@@ -81,20 +139,20 @@ export default function App() {
     }
   };
 
-  const handleLeaveRoom = () => {
-    setPhase('lobby');
-    setRoomCode('');
+  const handleLeaveRoom = async () => {
+    try {
+      await socketService.leaveRoom();
+      // Room left response will be handled by the message listener
+    } catch (error) {
+      console.error('Failed to leave room:', error);
+      // Fallback - go to lobby anyway
+      setPhase('lobby');
+      setRoomCode('');
+      setMembers([]);
+    }
   };
 
-  // Utility function to generate room codes
-  const generateRoomCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 6; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  };
+  // Remove old utility function - room codes now generated by server
 
   // Render different pages based on current phase and login state
   const currentPage = (() => {
@@ -116,17 +174,12 @@ export default function App() {
     }
 
     if (phase === 'room') {
-      // Add current user to members list for testing
-      const allMembers = actionType === 'create' 
-        ? [{ socketId: 'user', username }, ...members.slice(0, 2)]
-        : [members[0], { socketId: 'user', username }, ...members.slice(1, 2)];
-      
       return (
         <RoomView
           username={username}
           status={status}
-          roomCode={roomCode || 'ABC123'}
-          members={allMembers}
+          roomCode={roomCode}
+          members={members}
           onLeave={handleLeaveRoom}
         />
       );
