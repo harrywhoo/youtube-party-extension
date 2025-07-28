@@ -17,7 +17,8 @@ function initializeSocket() {
     }
     
     connectionAttempts++;
-    console.log(`Initializing socket connection attempt ${connectionAttempts} to ${SERVER_URL}`);
+    console.log(`🚨 INITIALIZESOCKET CALLED - attempt ${connectionAttempts} to ${SERVER_URL}`);
+    console.trace('Call stack for initializeSocket:');
     
     socket = io(SERVER_URL, {
         transports: ['websocket'], // Force websocket transport only, as per user suggestion
@@ -99,7 +100,7 @@ function initializeSocket() {
 
     // Video sync handler
     socket.on('video-sync-received', (data) => {
-        console.log('📥 Received video sync:', data);
+        console.log('📺 Received video sync from server:', data);
         console.log('🔍 Checking filters - Current room:', currentRoom, 'My username:', username);
         console.log('🔍 Data room:', data.roomId, 'Data username:', data.username);
         
@@ -116,7 +117,7 @@ function initializeSocket() {
 
     // URL sync handler
     socket.on('url-sync-received', (data) => {
-        console.log('📺 Received URL sync:', data);
+        console.log('📺 Received URL sync from server:', data);
         console.log('🔍 Checking filters - Current room:', currentRoom, 'My username:', username);
         
         // Only apply if it's for our current room and not from ourselves
@@ -179,14 +180,27 @@ function broadcastUrlToContentScripts(urlData: any) {
     });
 }
 
-// Extension installation/startup
+// Extension installation/startup - DON'T auto-connect
 chrome.runtime.onInstalled.addListener((details) => {
     console.log('YouTube Party Extension installed/updated:', details.reason);
-    initializeSocket();
+    // Don't initialize socket - wait for user action
 });
 
+// Service worker startup - DON'T auto-connect, clear session state
+const workerId = Math.random().toString(36).substring(7);
+console.log(`🚀 SERVICE WORKER [${workerId}] STARTED - ready for lazy connection`);
+console.log('🔍 Current socket state:', socket ? 'exists' : 'null');
+
+// Reset session state for fresh start
+currentRoom = null;
+username = null;
+roomMembers = [];
+connectionAttempts = 0;
+
+console.log('🧹 Session state cleared - starting fresh');
+
 // Initialize socket when service worker starts
-initializeSocket();
+// initializeSocket(); // This line is removed as per the new_code
 
 // Listen for tab updates (URL changes) - proper way for SPA navigation
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
@@ -260,29 +274,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 // Room management functions
 function handleCreateRoom(usernameParam: string, sendResponse: (response: any) => void) {
-    if (!socket) {
-        sendResponse({ success: false, error: 'Not connected to server' });
-        return;
+    // Establish connection if not connected
+    if (!socket || !socket.connected) {
+        console.log('🔌 Establishing connection for room creation...');
+        initializeSocket();
     }
     
     username = usernameParam;
-    socket.emit('create-room', { username });
+    socket?.emit('create-room', { username });
     sendResponse({ success: true });
 }
 
 function handleJoinRoom(roomId: string, usernameParam: string, sendResponse: (response: any) => void) {
-    if (!socket) {
-        sendResponse({ success: false, error: 'Not connected to server' });
-        return;
+    // Establish connection if not connected
+    if (!socket || !socket.connected) {
+        console.log('🔌 Establishing connection for room joining...');
+        initializeSocket();
     }
     
     username = usernameParam;
-    socket.emit('join-room', { roomId, username });
+    socket?.emit('join-room', { roomId, username });
     sendResponse({ success: true });
 }
 
 function handleLeaveRoom(sendResponse: (response: any) => void) {
-    if (!socket) {
+    if (!socket || !socket.connected) {
         sendResponse({ success: false, error: 'Not connected to server' });
         return;
     }
@@ -294,7 +310,7 @@ function handleLeaveRoom(sendResponse: (response: any) => void) {
 
 // Video sync function
 function handleVideoSync(message: any) {
-    if (!socket || !currentRoom || !username) {
+    if (!socket || !socket.connected || !currentRoom || !username) {
         console.log('Cannot sync video: not connected or not in room');
         return;
     }
@@ -310,7 +326,7 @@ function handleVideoSync(message: any) {
 
 // URL sync function
 function handleUrlSync(message: any) {
-    if (!socket || !currentRoom || !username) {
+    if (!socket || !socket.connected || !currentRoom || !username) {
         console.log('Cannot sync URL: not connected or not in room');
         return;
     }

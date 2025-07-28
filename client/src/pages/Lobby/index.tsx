@@ -49,7 +49,6 @@ export function Lobby({ username, status, onStart, onJoinClick, onLogout }: Lobb
       <div className="flex-1 flex flex-col justify-end px-6 pb-6 space-y-3">
         <Button 
           onClick={onStart}
-          disabled={status !== 'connected'}
           className="w-full h-12"
           size="lg"
         >
@@ -60,7 +59,6 @@ export function Lobby({ username, status, onStart, onJoinClick, onLogout }: Lobb
         <Button 
           variant="outline" 
           onClick={onJoinClick}
-          disabled={status !== 'connected'}
           className="w-full h-12"
           size="lg"
         >
