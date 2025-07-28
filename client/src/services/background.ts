@@ -150,33 +150,37 @@ function notifyPopup(message: any) {
 
 // Broadcast video sync to all YouTube content scripts
 function broadcastToContentScripts(syncData: any) {
+    console.log('📹 Broadcasting video sync to content scripts:', syncData);
     chrome.tabs.query({ url: "*://www.youtube.com/watch*" }, (tabs) => {
+        console.log('📋 Found', tabs.length, 'YouTube watch tabs');
         tabs.forEach(tab => {
             if (tab.id) {
+                console.log('📤 Sending video sync to tab', tab.id, ':', tab.url);
                 chrome.tabs.sendMessage(tab.id, {
-                    type: 'incoming-sync',
+                    type: 'video-sync-received',
                     action: syncData.action,
-                    time: syncData.time
-                }).catch(() => {
-                    // Content script might not be loaded, ignore
+                    time: syncData.time,
+                    username: syncData.username
+                }).then(() => {
+                    console.log('✅ Video sync message sent successfully to tab', tab.id);
+                }).catch((error) => {
+                    console.warn('❌ Failed to send video sync to tab', tab.id, ':', error);
                 });
             }
         });
     });
 }
 
-
 // Broadcast URL sync to all YouTube content scripts
 function broadcastUrlToContentScripts(urlData: any) {
     console.log('🔄 Broadcasting URL sync to content scripts:', urlData);
-    console.log('test');
     chrome.tabs.query({ url: "*://www.youtube.com/*" }, (tabs) => {
         console.log('📋 Found', tabs.length, 'YouTube tabs:', tabs.map(tab => ({ id: tab.id, url: tab.url })));
         tabs.forEach(tab => {
             if (tab.id) {
                 console.log('📤 Sending URL sync to tab', tab.id, ':', tab.url);
                 chrome.tabs.sendMessage(tab.id, {
-                    type: 'incoming-url-sync',
+                    type: 'url-sync-received',
                     videoId: urlData.videoId,
                     url: urlData.url
                 }).then(() => {
