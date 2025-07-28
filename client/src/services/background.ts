@@ -17,7 +17,8 @@ function initializeSocket() {
     }
     
     connectionAttempts++;
-    console.log(`Initializing socket connection attempt ${connectionAttempts} to ${SERVER_URL}`);
+    console.log(`🚨 INITIALIZESOCKET CALLED - attempt ${connectionAttempts} to ${SERVER_URL}`);
+    console.trace('Call stack for initializeSocket:');
     
     socket = io(SERVER_URL, {
         transports: ['websocket'], // Force websocket transport only, as per user suggestion
@@ -62,6 +63,7 @@ function initializeSocket() {
         console.log('Room created:', data);
         currentRoom = data.roomId;
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'room-created', data });
     });
 
@@ -69,26 +71,34 @@ function initializeSocket() {
         console.log('Room joined:', data);
         currentRoom = data.roomId;
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'room-joined', data });
     });
 
     socket.on('room-left', (roomId) => {
         console.log('Room left:', roomId);
-        currentRoom = null;
-        username = null;
-        roomMembers = [];
+        clearSessionState();
+        
+        // Disconnect from server after leaving room (lazy connection)
+        if (socket && socket.connected) {
+            console.log('🔌 Disconnecting from server after leaving room');
+            socket.disconnect();
+        }
+        
         notifyPopup({ type: 'room-left', data: roomId });
     });
 
     socket.on('user-joined', (data) => {
         console.log('User joined room:', data);
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'user-joined', data });
     });
 
     socket.on('user-left', (data) => {
         console.log('User left room:', data);
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'user-left', data });
     });
 
@@ -99,7 +109,7 @@ function initializeSocket() {
 
     // Video sync handler
     socket.on('video-sync-received', (data) => {
-        console.log('📥 Received video sync:', data);
+        console.log('📺 Received video sync from server:', data);
         console.log('🔍 Checking filters - Current room:', currentRoom, 'My username:', username);
         console.log('🔍 Data room:', data.roomId, 'Data username:', data.username);
         
@@ -116,7 +126,7 @@ function initializeSocket() {
 
     // URL sync handler
     socket.on('url-sync-received', (data) => {
-        console.log('📺 Received URL sync:', data);
+        console.log('📺 Received URL sync from server:', data);
         console.log('🔍 Checking filters - Current room:', currentRoom, 'My username:', username);
         
         // Only apply if it's for our current room and not from ourselves
@@ -140,33 +150,37 @@ function notifyPopup(message: any) {
 
 // Broadcast video sync to all YouTube content scripts
 function broadcastToContentScripts(syncData: any) {
+    console.log('📹 Broadcasting video sync to content scripts:', syncData);
     chrome.tabs.query({ url: "*://www.youtube.com/watch*" }, (tabs) => {
+        console.log('📋 Found', tabs.length, 'YouTube watch tabs');
         tabs.forEach(tab => {
             if (tab.id) {
+                console.log('📤 Sending video sync to tab', tab.id, ':', tab.url);
                 chrome.tabs.sendMessage(tab.id, {
-                    type: 'incoming-sync',
+                    type: 'video-sync-received',
                     action: syncData.action,
-                    time: syncData.time
-                }).catch(() => {
-                    // Content script might not be loaded, ignore
+                    time: syncData.time,
+                    username: syncData.username
+                }).then(() => {
+                    console.log('✅ Video sync message sent successfully to tab', tab.id);
+                }).catch((error) => {
+                    console.warn('❌ Failed to send video sync to tab', tab.id, ':', error);
                 });
             }
         });
     });
 }
 
-
 // Broadcast URL sync to all YouTube content scripts
 function broadcastUrlToContentScripts(urlData: any) {
     console.log('🔄 Broadcasting URL sync to content scripts:', urlData);
-    console.log('test');
     chrome.tabs.query({ url: "*://www.youtube.com/*" }, (tabs) => {
         console.log('📋 Found', tabs.length, 'YouTube tabs:', tabs.map(tab => ({ id: tab.id, url: tab.url })));
         tabs.forEach(tab => {
             if (tab.id) {
                 console.log('📤 Sending URL sync to tab', tab.id, ':', tab.url);
                 chrome.tabs.sendMessage(tab.id, {
-                    type: 'incoming-url-sync',
+                    type: 'url-sync-received',
                     videoId: urlData.videoId,
                     url: urlData.url
                 }).then(() => {
@@ -179,14 +193,59 @@ function broadcastUrlToContentScripts(urlData: any) {
     });
 }
 
-// Extension installation/startup
+// Extension installation/startup - DON'T auto-connect
 chrome.runtime.onInstalled.addListener((details) => {
     console.log('YouTube Party Extension installed/updated:', details.reason);
-    initializeSocket();
+    // Don't initialize socket - wait for user action
 });
 
-// Initialize socket when service worker starts
-initializeSocket();
+// Service worker startup - DON'T auto-connect, restore session state
+const workerId = Math.random().toString(36).substring(7);
+console.log(`🚀 SERVICE WORKER [${workerId}] STARTED - ready for lazy connection`);
+console.log('🔍 Current socket state:', socket ? 'exists' : 'null');
+
+// Flag to track if state restoration is complete
+let stateRestored = false;
+
+// Restore session state from storage (for service worker restarts within session)
+chrome.storage.session.get(['currentRoom', 'username', 'roomMembers'], (result) => {
+    if (result.currentRoom && result.username) {
+        console.log('🔄 Restoring session state from storage:', result);
+        currentRoom = result.currentRoom;
+        username = result.username;
+        roomMembers = result.roomMembers || [];
+        connectionAttempts = 0;
+    } else {
+        console.log('🧹 No session state found - starting fresh');
+        // Clear any stale state
+        currentRoom = null;
+        username = null;
+        roomMembers = [];
+        connectionAttempts = 0;
+    }
+    stateRestored = true;
+    console.log('✅ State restoration complete. Current state:', { currentRoom, username, roomMembers });
+});
+
+// Helper function to save session state
+function saveSessionState() {
+    chrome.storage.session.set({
+        currentRoom,
+        username,
+        roomMembers
+    });
+    console.log('💾 Saved session state:', { currentRoom, username, roomMembers });
+}
+
+// Helper function to clear session state
+function clearSessionState() {
+    chrome.storage.session.clear();
+    currentRoom = null;
+    username = null;
+    roomMembers = [];
+    connectionAttempts = 0;
+    console.log('🧹 Cleared session state');
+}
 
 // Listen for tab updates (URL changes) - proper way for SPA navigation
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
@@ -245,13 +304,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             break;
             
         case 'get-connection-status':
-            sendResponse({ 
-                connected: socket?.connected || false,
-                currentRoom,
-                username,
-                roomMembers
-            });
-            return true;
+            // Wait for state restoration to complete before responding
+            if (!stateRestored) {
+                console.log('⏳ State restoration in progress, waiting...');
+                // Wait a bit for state restoration to complete
+                setTimeout(() => {
+                    const statusResponse = {
+                        connected: socket?.connected || false,
+                        currentRoom,
+                        username,
+                        roomMembers
+                    };
+                    console.log('📋 Returning connection status (delayed):', statusResponse);
+                    sendResponse(statusResponse);
+                }, 100);
+                return true;
+            } else {
+                const statusResponse = {
+                    connected: socket?.connected || false,
+                    currentRoom,
+                    username,
+                    roomMembers
+                };
+                console.log('📋 Returning connection status:', statusResponse);
+                sendResponse(statusResponse);
+                return true;
+            }
             
         default:
             console.warn('Unknown message type:', message.type);
@@ -260,41 +338,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 // Room management functions
 function handleCreateRoom(usernameParam: string, sendResponse: (response: any) => void) {
-    if (!socket) {
-        sendResponse({ success: false, error: 'Not connected to server' });
-        return;
+    // Establish connection if not connected
+    if (!socket || !socket.connected) {
+        console.log('🔌 Establishing connection for room creation...');
+        initializeSocket();
     }
     
     username = usernameParam;
-    socket.emit('create-room', { username });
+    socket?.emit('create-room', { username });
     sendResponse({ success: true });
 }
 
 function handleJoinRoom(roomId: string, usernameParam: string, sendResponse: (response: any) => void) {
-    if (!socket) {
-        sendResponse({ success: false, error: 'Not connected to server' });
-        return;
+    // Establish connection if not connected
+    if (!socket || !socket.connected) {
+        console.log('🔌 Establishing connection for room joining...');
+        initializeSocket();
     }
     
     username = usernameParam;
-    socket.emit('join-room', { roomId, username });
+    socket?.emit('join-room', { roomId, username });
     sendResponse({ success: true });
 }
 
 function handleLeaveRoom(sendResponse: (response: any) => void) {
-    if (!socket) {
-        sendResponse({ success: false, error: 'Not connected to server' });
+    if (!socket || !socket.connected) {
+        // If not connected, just clear local state
+        clearSessionState();
+        sendResponse({ success: true });
         return;
     }
     
     socket.emit('leave-room');
     // Don't clear local state immediately - wait for server confirmation via 'room-left' event
+    // The 'room-left' event handler will clear state and disconnect
     sendResponse({ success: true });
 }
 
 // Video sync function
 function handleVideoSync(message: any) {
-    if (!socket || !currentRoom || !username) {
+    if (!socket || !socket.connected || !currentRoom || !username) {
         console.log('Cannot sync video: not connected or not in room');
         return;
     }
@@ -310,7 +393,7 @@ function handleVideoSync(message: any) {
 
 // URL sync function
 function handleUrlSync(message: any) {
-    if (!socket || !currentRoom || !username) {
+    if (!socket || !socket.connected || !currentRoom || !username) {
         console.log('Cannot sync URL: not connected or not in room');
         return;
     }

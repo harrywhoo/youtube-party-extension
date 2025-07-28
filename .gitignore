@@ -95,6 +95,9 @@ Desktop.ini
 .crx
 .pem
 
+claude.md
+NEXT_STEPS.md
+.claude/
 # Logs
 logs
 *.log
