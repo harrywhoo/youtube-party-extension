@@ -28,15 +28,21 @@ export default function App() {
       setPhase('lobby');
     }
 
-    // Setup socket connection status monitoring
+    // Setup socket connection status monitoring  
     const checkConnectionStatus = async () => {
       try {
         const connectionStatus = await socketService.getConnectionStatus();
+        console.log('🔍 Connection status received:', connectionStatus);
         setStatus(connectionStatus.connected ? 'connected' : 'disconnected');
-        if (connectionStatus.currentRoom && connectionStatus.members) {
+        
+        // Restore room state if user is in a room during current session
+        if (connectionStatus.currentRoom && connectionStatus.roomMembers && connectionStatus.roomMembers.length > 0) {
+          console.log('✅ Restoring room state:', connectionStatus.currentRoom);
           setRoomCode(connectionStatus.currentRoom);
-          setMembers(connectionStatus.members);
+          setMembers(connectionStatus.roomMembers);
           setPhase('room');
+        } else {
+          console.log('🏠 No active room - staying in lobby');
         }
       } catch (error) {
         console.error('Failed to get connection status:', error);

@@ -63,6 +63,7 @@ function initializeSocket() {
         console.log('Room created:', data);
         currentRoom = data.roomId;
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'room-created', data });
     });
 
@@ -70,26 +71,34 @@ function initializeSocket() {
         console.log('Room joined:', data);
         currentRoom = data.roomId;
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'room-joined', data });
     });
 
     socket.on('room-left', (roomId) => {
         console.log('Room left:', roomId);
-        currentRoom = null;
-        username = null;
-        roomMembers = [];
+        clearSessionState();
+        
+        // Disconnect from server after leaving room (lazy connection)
+        if (socket && socket.connected) {
+            console.log('🔌 Disconnecting from server after leaving room');
+            socket.disconnect();
+        }
+        
         notifyPopup({ type: 'room-left', data: roomId });
     });
 
     socket.on('user-joined', (data) => {
         console.log('User joined room:', data);
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'user-joined', data });
     });
 
     socket.on('user-left', (data) => {
         console.log('User left room:', data);
         roomMembers = data.members;
+        saveSessionState();
         notifyPopup({ type: 'user-left', data });
     });
 
@@ -186,21 +195,53 @@ chrome.runtime.onInstalled.addListener((details) => {
     // Don't initialize socket - wait for user action
 });
 
-// Service worker startup - DON'T auto-connect, clear session state
+// Service worker startup - DON'T auto-connect, restore session state
 const workerId = Math.random().toString(36).substring(7);
 console.log(`🚀 SERVICE WORKER [${workerId}] STARTED - ready for lazy connection`);
 console.log('🔍 Current socket state:', socket ? 'exists' : 'null');
 
-// Reset session state for fresh start
-currentRoom = null;
-username = null;
-roomMembers = [];
-connectionAttempts = 0;
+// Flag to track if state restoration is complete
+let stateRestored = false;
 
-console.log('🧹 Session state cleared - starting fresh');
+// Restore session state from storage (for service worker restarts within session)
+chrome.storage.session.get(['currentRoom', 'username', 'roomMembers'], (result) => {
+    if (result.currentRoom && result.username) {
+        console.log('🔄 Restoring session state from storage:', result);
+        currentRoom = result.currentRoom;
+        username = result.username;
+        roomMembers = result.roomMembers || [];
+        connectionAttempts = 0;
+    } else {
+        console.log('🧹 No session state found - starting fresh');
+        // Clear any stale state
+        currentRoom = null;
+        username = null;
+        roomMembers = [];
+        connectionAttempts = 0;
+    }
+    stateRestored = true;
+    console.log('✅ State restoration complete. Current state:', { currentRoom, username, roomMembers });
+});
 
-// Initialize socket when service worker starts
-// initializeSocket(); // This line is removed as per the new_code
+// Helper function to save session state
+function saveSessionState() {
+    chrome.storage.session.set({
+        currentRoom,
+        username,
+        roomMembers
+    });
+    console.log('💾 Saved session state:', { currentRoom, username, roomMembers });
+}
+
+// Helper function to clear session state
+function clearSessionState() {
+    chrome.storage.session.clear();
+    currentRoom = null;
+    username = null;
+    roomMembers = [];
+    connectionAttempts = 0;
+    console.log('🧹 Cleared session state');
+}
 
 // Listen for tab updates (URL changes) - proper way for SPA navigation
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
@@ -259,13 +300,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             break;
             
         case 'get-connection-status':
-            sendResponse({ 
-                connected: socket?.connected || false,
-                currentRoom,
-                username,
-                roomMembers
-            });
-            return true;
+            // Wait for state restoration to complete before responding
+            if (!stateRestored) {
+                console.log('⏳ State restoration in progress, waiting...');
+                // Wait a bit for state restoration to complete
+                setTimeout(() => {
+                    const statusResponse = {
+                        connected: socket?.connected || false,
+                        currentRoom,
+                        username,
+                        roomMembers
+                    };
+                    console.log('📋 Returning connection status (delayed):', statusResponse);
+                    sendResponse(statusResponse);
+                }, 100);
+                return true;
+            } else {
+                const statusResponse = {
+                    connected: socket?.connected || false,
+                    currentRoom,
+                    username,
+                    roomMembers
+                };
+                console.log('📋 Returning connection status:', statusResponse);
+                sendResponse(statusResponse);
+                return true;
+            }
             
         default:
             console.warn('Unknown message type:', message.type);
@@ -299,12 +359,15 @@ function handleJoinRoom(roomId: string, usernameParam: string, sendResponse: (re
 
 function handleLeaveRoom(sendResponse: (response: any) => void) {
     if (!socket || !socket.connected) {
-        sendResponse({ success: false, error: 'Not connected to server' });
+        // If not connected, just clear local state
+        clearSessionState();
+        sendResponse({ success: true });
         return;
     }
     
     socket.emit('leave-room');
     // Don't clear local state immediately - wait for server confirmation via 'room-left' event
+    // The 'room-left' event handler will clear state and disconnect
     sendResponse({ success: true });
 }
 
